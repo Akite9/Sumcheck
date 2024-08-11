@@ -3,7 +3,7 @@ use std::ops::Add;
 use std::io;
 
 
-// Function to perform modular exponentiation (base^exp % modulus)
+// Helper function to perform modular exponentiation (base^exp % modulus)
 fn modular_pow(base: i32, exp: usize, modulus: i32) -> i32 {
     let mut result = 1;
     let mut base = base.rem_euclid(modulus);
@@ -19,6 +19,27 @@ fn modular_pow(base: i32, exp: usize, modulus: i32) -> i32 {
     result
 }
 
+// Helper function to check if the modulus is prime
+fn is_prime(num: i32) -> bool {
+    if num <= 1 {
+        return false;
+    }
+    if num <= 3 {
+        return true;
+    }
+    if num % 2 == 0 || num % 3 == 0 {
+        return false;
+    }
+    let mut i = 5;
+    while i * i <= num {
+        if num % i == 0 || num % (i + 2) == 0 {
+            return false;
+        }
+        i += 6;
+    }
+    true
+}
+
 // Define a struct for multi-variable polynomials
 #[derive(Debug, Clone, PartialEq)]
 pub struct MultiVarPolynomial {
@@ -30,6 +51,9 @@ pub struct MultiVarPolynomial {
 impl MultiVarPolynomial {
     // Create a new polynomial with a given number of variables and modulus
     pub fn new(num_vars: usize, modulus: i32) -> Self {
+         if modulus <= 0 || !is_prime(modulus) {
+            panic!("Modulus must be a positive prime number");
+        }
         Self {
             terms: HashMap::new(),
             num_vars,
@@ -49,7 +73,7 @@ impl MultiVarPolynomial {
             .or_insert(reduced_coefficient);
     }
 
-        // Get the degree of the polynomial with respect to a specific variable
+    // Get the degree of the polynomial with respect to a specific variable
     pub fn degree_in_var(&self, var_index: usize) -> usize {
         if var_index >= self.num_vars {
             panic!("Variable index out of bounds");
@@ -110,6 +134,14 @@ impl MultiVarPolynomial {
             .expect("Failed to read line");
         let num_vars: usize = num_vars_input.trim().parse().expect("Invalid number");
 
+        // Read the modulus from the user
+        println!("Enter the modulus of the finite field (must be a positive prime):");
+        let mut modulus_input = String::new();
+        io::stdin()
+            .read_line(&mut modulus_input)
+            .expect("Failed to read line");
+        let modulus: i32 = modulus_input.trim().parse().expect("Invalid modulus");
+
         println!(
             "Enter polynomial terms in the format 'coeff:exp1,exp2,...; coeff:exp1,exp2,...'"
         );
@@ -118,7 +150,6 @@ impl MultiVarPolynomial {
         io::stdin().read_line(&mut input).expect("Failed to read line");
 
         let input = input.trim();
-        let modulus = 17617;
         let mut polynomial = MultiVarPolynomial::new(num_vars, modulus);
 
         for term in input.split(';') {
@@ -150,6 +181,7 @@ impl MultiVarPolynomial {
     }
 }
 
+// Add two multi-variable polynomials together
 impl Add for MultiVarPolynomial {
     type Output = Self;
 
@@ -173,3 +205,110 @@ impl Add for MultiVarPolynomial {
 }
 
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    #[test]
+    fn test_create_polynomial() {
+        let poly = MultiVarPolynomial::new(3, 7);
+        assert_eq!(poly.num_vars, 3);
+        assert_eq!(poly.modulus, 7);
+        assert!(poly.terms.is_empty());
+    }
+
+    #[test]
+    fn test_add_term() {
+        let mut poly = MultiVarPolynomial::new(2, 5);
+        poly.add_term(vec![1, 2], 3);
+        assert_eq!(poly.terms.len(), 1);
+        assert_eq!(poly.terms.get(&vec![1, 2]), Some(&3));
+        
+        // Adding another term with the same exponent
+        poly.add_term(vec![1, 2], 2);
+        assert_eq!(poly.terms.get(&vec![1, 2]), Some(&0)); // (3 + 2) % 5 = 0
+    }
+
+    #[test]
+    fn test_degree_in_var() {
+        let mut poly = MultiVarPolynomial::new(2, 11);
+        poly.add_term(vec![3, 1], 4);
+        poly.add_term(vec![1, 2], 5);
+        assert_eq!(poly.degree_in_var(0), 3);
+        assert_eq!(poly.degree_in_var(1), 2);
+    }
+    
+    #[test]
+    fn test_partial_eval() {
+        // Create a polynomial in 2 variables: x_1 + x_2
+        let mut poly = MultiVarPolynomial::new(2, 23);
+        poly.add_term(vec![1, 0], 1); // x_1
+        poly.add_term(vec![0, 1], 1); // x_2
+
+        // Partially evaluate polynomial at x_1 = 3
+        let partial_eval_poly = poly.partial_eval(vec![(0, 3)]);
+
+        // Expected result: 3 + x_2
+        let mut expected_poly = MultiVarPolynomial::new(1, 23);
+        expected_poly.add_term(vec![0], 3); // 3 (constant term after x_1 evaluation)
+        expected_poly.add_term(vec![1], 1); // x_2
+
+        assert_eq!(partial_eval_poly, expected_poly);
+    }
+
+    #[test]
+    fn test_bool_sum() {
+        let mut poly = MultiVarPolynomial::new(2, 5);
+        poly.add_term(vec![1, 0], 2);
+        poly.add_term(vec![0, 1], 3);
+
+        let bool_sum_poly = poly.bool_sum();
+        let mut expected_terms = HashMap::new();
+        expected_terms.insert(vec![1], 4);
+        expected_terms.insert(vec![0], 3);
+
+        let expected_poly = MultiVarPolynomial {
+            terms: expected_terms,
+            num_vars: 1,
+            modulus: 5,
+        };
+        assert_eq!(bool_sum_poly, expected_poly);
+    }
+
+    #[test]
+    fn test_addition() {
+        let mut poly1 = MultiVarPolynomial::new(2, 11);
+        poly1.add_term(vec![1, 1], 4);
+        poly1.add_term(vec![0, 0], 3);
+
+        let mut poly2 = MultiVarPolynomial::new(2, 11);
+        poly2.add_term(vec![1, 1], 5);
+        poly2.add_term(vec![0, 1], 2);
+
+        let sum_poly = poly1 + poly2;
+        let mut expected_terms = HashMap::new();
+        expected_terms.insert(vec![1, 1], 9); // (4 + 5) % 11 = 9
+        expected_terms.insert(vec![0, 0], 3);
+        expected_terms.insert(vec![0, 1], 2);
+
+        let expected_poly = MultiVarPolynomial {
+            terms: expected_terms,
+            num_vars: 2,
+            modulus: 11,
+        };
+        assert_eq!(sum_poly, expected_poly);
+    }
+
+    #[test]
+    fn test_is_prime() {
+        // Testing known primes
+        assert!(is_prime(8009));
+    }
+
+    #[test]
+    fn test_modular_pow() {
+        // Testing modular exponentiation
+        assert_eq!(modular_pow(2, 3, 5), 3); // (2^3 % 5) = 8 % 5 = 3
+    }
+}
